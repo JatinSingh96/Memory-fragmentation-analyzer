@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MemFrag â€” Memory Fragmentation Analyzer</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0a0b0f;
+    --surface: #111318;
+    --surface2: #181b23;
+    --border: rgba(255,255,255,0.07);
+    --border-hi: rgba(255,255,255,0.14);
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --accent: #4ade80;
+    --accent2: #f59e0b;
+    --accent3: #f87171;
+    --accent4: #818cf8;
+    --mono: 'Space Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* grid texture */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* â”€â”€â”€ HEADER â”€â”€â”€ */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(10,11,15,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 58px;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo-badge {
+    background: rgba(74,222,128,0.12);
+    border: 1px solid rgba(74,222,128,0.25);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+  .status-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* â”€â”€â”€ HERO â”€â”€â”€ */
+  .hero {
+    position: relative;
+    z-index: 1;
+    padding: 3.5rem 2rem 2.5rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .hero-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .hero-title {
+    font-size: clamp(28px, 5vw, 46px);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--text);
+    margin-bottom: 12px;
+  }
+  .hero-title span { color: var(--accent4); }
+  .hero-sub {
+    font-size: 15px;
+    color: var(--muted);
+    max-width: 520px;
+    line-height: 1.7;
+  }
+
+  /* â”€â”€â”€ MAIN LAYOUT â”€â”€â”€ */
+  .main {
+    position: relative;
+    z-index: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 2rem 4rem;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 20px;
+  }
+  @media(max-width: 900px) {
+    .main { grid-template-columns: 1fr; }
+  }
+
+  /* â”€â”€â”€ PANELS â”€â”€â”€ */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .panel-body { padding: 16px; }
+
+  /* â”€â”€â”€ STRATEGY TABS â”€â”€â”€ */
+  .strategy-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .stab {
+    flex: 1;
+    padding: 7px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .stab:hover { border-color: var(--border-hi); color: var(--text); }
+  .stab.active {
+    background: rgba(129,140,248,0.12);
+    border-color: rgba(129,140,248,0.35);
+    color: var(--accent4);
+  }
+
+  /* â”€â”€â”€ METRICS ROW â”€â”€â”€ */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  @media(max-width:700px) {
+    .metrics-row { grid-template-columns: repeat(3,1fr); }
+  }
+  .metric-cell {
+    background: var(--surface);
+    padding: 14px 16px;
+  }
+  .metric-cell-label {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  .metric-cell-val {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .metric-cell-val.good  { color: var(--accent); }
+  .metric-cell-val.warn  { color: var(--accent2); }
+  .metric-cell-val.bad   { color: var(--accent3); }
+  .metric-cell-val.info  { color: var(--accent4); }
+  .metric-cell-val.neutral{ color: var(--text); }
+
+  /* â”€â”€â”€ MEMORY GRID â”€â”€â”€ */
+  .mem-section { padding: 16px; }
+  .mem-section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .mem-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .mcell {
+    border-radius: 3px;
+    height: 26px;
+    flex: 1;
+    min-width: 10px;
+    max-width: 24px;
+    cursor: pointer;
+    transition: transform 0.08s, opacity 0.1s;
+    position: relative;
+  }
+  .mcell:hover { transform: scaleY(1.15); opacity: 0.85; }
+  .mcell.free    { background: rgba(255,255,255,0.07); }
+  .mcell.alloc   { background: #4ade80; }
+  .mcell.header  { background: #818cf8; }
+  .mcell.intfrag { background: #f59e0b; }
+  .mcell.ext     { background: rgba(248,113,113,0.3); border: 1px dashed rgba(248,113,113,0.5); }
+
+  /* â”€â”€â”€ LEGEND â”€â”€â”€ */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--border);
+  }
+  .leg { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+  .leg-sq { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  /* â”€â”€â”€ CHARTS â”€â”€â”€ */
+  .charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border-top: 1px solid var(--border);
+  }
+  @media(max-width:600px) {
+    .charts-row { grid-template-columns: 1fr; }
+  }
+  .chart-cell { background: var(--surface); padding: 14px 16px; }
+  .chart-cell-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chart-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .chart-wrap { position: relative; height: 150px; }
+
+  /* â”€â”€â”€ SIDEBAR â”€â”€â”€ */
+  .sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+  /* â”€â”€â”€ CONTROLS â”€â”€â”€ */
+  .ctrl-group { margin-bottom: 14px; }
+  .ctrl-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .ctrl-val {
+    color: var(--accent4);
+    font-size: 12px;
+  }
+  input[type=range] {
+    width: 100%;
+    accent-color: var(--accent4);
+    cursor: pointer;
+    height: 4px;
+  }
+  .btn-row { display: flex; flex-direction: column; gap: 6px; }
+  .btn {
+    width: 100%;
+    padding: 9px 14px;
+    border-radius: 7px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: all 0.12s;
+    text-align: left;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn:hover { border-color: var(--border-hi); background: #1e2130; }
+  .btn.primary {
+    background: rgba(74,222,128,0.1);
+    border-color: rgba(74,222,128,0.25);
+    color: var(--accent);
+  }
+  .btn.primary:hover { background: rgba(74,222,128,0.18); }
+  .btn.secondary {
+    background: rgba(129,140,248,0.08);
+    border-color: rgba(129,140,248,0.2);
+    color: var(--accent4);
+  }
+  .btn.danger-btn {
+    background: rgba(248,113,113,0.08);
+    border-color: rgba(248,113,113,0.2);
+    color: var(--accent3);
+  }
+  .btn.danger-btn:hover { background: rgba(248,113,113,0.14); }
+  .btn-icon { font-size: 14px; }
+
+  /* â”€â”€â”€ LOG â”€â”€â”€ */
+  .log {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    height: 200px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .log::-webkit-scrollbar { width: 4px; }
+  .log::-webkit-scrollbar-track { background: transparent; }
+  .log::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px; }
+  .log-line { padding: 1px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .log-line:last-child { border-bottom: none; }
+  .log-line .ts { color: var(--muted); }
+  .log-line.a .msg { color: var(--accent); }
+  .log-line.f .msg { color: var(--accent4); }
+  .log-line.e .msg { color: var(--accent3); }
+  .log-line.n .msg { color: var(--muted); }
+
+  /* â”€â”€â”€ TOOLTIP â”€â”€â”€ */
+  #tooltip {
+    position: fixed;
+    background: var(--surface2);
+    border: 1px solid var(--border-hi);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 999;
+    white-space: nowrap;
+  }
+
+  /* â”€â”€â”€ FOOTER â”€â”€â”€ */
+  footer {
+    position: relative;
+    z-index: 1;
+    border-top: 1px solid var(--border);
+    padding: 20px 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .footer-left {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .footer-right {
+    display: flex;
+    gap: 20px;
+  }
+  .footer-stat {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .footer-stat span { color: var(--text); }
+
+  /* animations */
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:none;} }
+  .hero, .main { animation: fadeIn 0.4s ease both; }
+  .main { animation-delay: 0.05s; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <rect x="1" y="1" width="6" height="6" rx="1.5" fill="#4ade80"/>
+      <rect x="9" y="1" width="8" height="6" rx="1.5" fill="#818cf8" opacity="0.7"/>
+      <rect x="1" y="9" width="4" height="8" rx="1.5" fill="#f59e0b" opacity="0.8"/>
+      <rect x="7" y="9" width="10" height="8" rx="1.5" fill="#4ade80" opacity="0.4"/>
+    </svg>
+    MemFrag
+    <span class="logo-badge">v1.0</span>
+  </div>
+  <div class="header-right">
+    <div class="status-dot"></div>
+    <span class="status-label">Simulator active</span>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="hero-eyebrow">// dynamic memory analysis</div>
+  <h1 class="hero-title">Memory <span>Fragmentation</span><br>Analyzer</h1>
+  <p class="hero-sub">Visualize internal &amp; external fragmentation caused by dynamic allocation. Compare allocation strategies and track memory utilization efficiency in real time.</p>
+</div>
+
+<div class="main">
+
+  <!-- LEFT: main panel -->
+  <div style="display:flex;flex-direction:column;gap:0;border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--surface);">
+
+    <!-- strategy tabs -->
+    <div class="strategy-tabs">
+      <button class="stab active" id="tab-ff" onclick="setStrategy('first-fit',this)">First fit</button>
+      <button class="stab" id="tab-bf" onclick="setStrategy('best-fit',this)">Best fit</button>
+      <button class="stab" id="tab-wf" onclick="setStrategy('worst-fit',this)">Worst fit</button>
+    </div>
+
+    <!-- metrics row -->
+    <div class="metrics-row" id="metrics-row">
+      <div class="metric-cell"><div class="metric-cell-label">Ext. frag</div><div class="metric-cell-val neutral" id="m-ext">0%</div></div>
+      <div class="metric-cell"><div class="metric-cell-label">Int. frag</div><div class="metric-cell-val neutral" id="m-int">0%</div></div>
+      <div class="metric-cell"><div class="metric-cell-label">Utilization</div><div class="metric-cell-val neutral" id="m-util">0%</div></div>
+      <div class="metric-cell"><div class="metric-cell-label">Free space</div><div class="metric-cell-val info" id="m-free">64u</div></div>
+      <div class="metric-cell"><div class="metric-cell-label">Free blocks</div><div class="metric-cell-val neutral" id="m-fblocks">1</div></div>
+      <div class="metric-cell"><div class="metric-cell-label">Live allocs</div><div class="metric-cell-val neutral" id="m-live">0</div></div>
+    </div>
+
+    <!-- memory grid -->
+    <div class="mem-section">
+      <div class="mem-section-label">
+        <span>Memory layout â€” 64 unit address space</span>
+        <span id="addr-label" style="color:var(--accent4);font-size:10px;"></span>
+      </div>
+      <div class="mem-grid" id="mem-grid"></div>
+    </div>
+
+    <!-- legend -->
+    <div class="legend">
+      <div class="leg"><div class="leg-sq" style="background:#4ade80;"></div>Allocated (payload)</div>
+      <div class="leg"><div class="leg-sq" style="background:#f59e0b;"></div>Internal fragmentation</div>
+      <div class="leg"><div class="leg-sq" style="background:#818cf8;"></div>Block header overhead</div>
+      <div class="leg"><div class="leg-sq" style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);"></div>Free space</div>
+    </div>
+
+    <!-- charts -->
+    <div class="charts-row">
+      <div class="chart-cell">
+        <div class="chart-cell-label">
+          <div class="chart-dot" style="background:#f87171;"></div>Ext. frag
+          <div class="chart-dot" style="background:#f59e0b;margin-left:6px;"></div>Int. frag
+        </div>
+        <div class="chart-wrap"><canvas id="chart-frag" role="img" aria-label="Line chart: internal and external fragmentation over time">Fragmentation over time.</canvas></div>
+      </div>
+      <div class="chart-cell">
+        <div class="chart-cell-label">
+          <div class="chart-dot" style="background:#4ade80;"></div>Utilization efficiency
+        </div>
+        <div class="chart-wrap"><canvas id="chart-util" role="img" aria-label="Line chart: memory utilization over time">Utilization over time.</canvas></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT: sidebar -->
+  <div class="sidebar">
+
+    <!-- controls -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">// controls</span>
+      </div>
+      <div class="panel-body">
+
+        <div class="ctrl-group">
+          <div class="ctrl-label">
+            Allocation size
+            <span class="ctrl-val" id="sz-out">4 units</span>
+          </div>
+          <input type="range" id="sz-slider" min="1" max="10" value="4" step="1">
+        </div>
+
+        <div class="ctrl-group">
+          <div class="ctrl-label">
+            Burst count
+            <span class="ctrl-val" id="burst-out">20 ops</span>
+          </div>
+          <input type="range" id="burst-slider" min="5" max="60" value="20" step="5">
+        </div>
+
+        <div class="btn-row">
+          <button class="btn primary" onclick="doAlloc()">
+            <span class="btn-icon">+</span> Allocate block
+          </button>
+          <button class="btn secondary" onclick="doFree()">
+            <span class="btn-icon">~</span> Free random
+          </button>
+          <button class="btn" onclick="doBurst()">
+            <span class="btn-icon">âš¡</span> Run burst simulation
+          </button>
+          <button class="btn" onclick="doCompact()">
+            <span class="btn-icon">â–£</span> Compact memory
+          </button>
+          <button class="btn danger-btn" onclick="doReset()">
+            <span class="btn-icon">â†º</span> Reset simulator
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- strategy info -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">// strategy info</span>
+      </div>
+      <div class="panel-body" style="padding:14px 16px;">
+        <div id="strat-info" style="font-size:13px;color:var(--muted);line-height:1.7;"></div>
+      </div>
+    </div>
+
+    <!-- allocation log -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">// allocation log</span>
+        <button onclick="clearLog()" style="font-family:var(--mono);font-size:10px;background:transparent;border:none;color:var(--muted);cursor:pointer;letter-spacing:0.05em;">CLEAR</button>
+      </div>
+      <div class="panel-body" style="padding:10px;">
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <div class="footer-left">MemFrag â€” Dynamic Memory Fragmentation Analyzer</div>
+  <div class="footer-right">
+    <div class="footer-stat">Address space: <span>64 units</span></div>
+    <div class="footer-stat">Header overhead: <span>1 unit/block</span></div>
+    <div class="footer-stat">Strategy: <span id="footer-strat">First fit</span></div>
+  </div>
+</footer>
+
+<div id="tooltip"></div>
+
+<script>
+const TOTAL = 64;
+const HEADER = 1;
+let strategy = 'first-fit';
+let memory = [];
+let allocations = [];
+let nextId = 1;
+let stepCount = 0;
+let history = { ext:[], int:[], util:[], labels:[] };
+let chartFrag, chartUtil;
+let totalAllocated = 0;
+let totalFreed = 0;
+
+const STRAT_INFO = {
+  'first-fit': `Scans the free list from the beginning and uses the <strong style="color:var(--text)">first hole large enough</strong> to satisfy the request. Fast O(n) but tends to leave large holes fragmented near the start of the address space.`,
+  'best-fit':  `Searches all free blocks and picks the <strong style="color:var(--text)">smallest hole that fits</strong>. Minimizes wasted space per allocation but produces many tiny unusable gaps over time, increasing external fragmentation.`,
+  'worst-fit': `Allocates into the <strong style="color:var(--text)">largest available hole</strong>. Leaves bigger leftover chunks, which can be reused for future allocations, but fragments the address space unevenly.`
+};
+
+function initMemory() {
+  memory = Array.from({length:TOTAL}, (_,i)=>({idx:i, type:'free', aid:null}));
+  allocations=[];nextId=1;stepCount=0;totalAllocated=0;totalFreed=0;
+  history={ext:[],int:[],util:[],labels:[]};
+}
+
+function getFreeBlocks() {
+  const blocks=[];let i=0;
+  while(i<TOTAL){
+    if(memory[i].type==='free'){
+      const s=i;
+      while(i<TOTAL&&memory[i].type==='free')i++;
+      blocks.push({start:s,size:i-s});
+    } else i++;
+  }
+  return blocks;
+}
+
+function pickBlock(needed) {
+  const valid = getFreeBlocks().filter(b=>b.size>=needed);
+  if(!valid.length) return null;
+  if(strategy==='first-fit') return valid[0];
+  if(strategy==='best-fit')  return valid.reduce((a,b)=>b.size<a.size?b:a);
+  if(strategy==='worst-fit') return valid.reduce((a,b)=>b.size>a.size?b:a);
+}
+
+function allocate(reqSize) {
+  const needed = reqSize + HEADER;
+  const block = pickBlock(needed);
+  if(!block){ log(`FAIL: no block â‰¥${needed} units`,'e'); return false; }
+  const id = nextId++;
+  for(let i=block.start; i<block.start+HEADER; i++) memory[i]={idx:i,type:'header',aid:id};
+  for(let i=block.start+HEADER; i<block.start+HEADER+reqSize; i++) memory[i]={idx:i,type:'alloc',aid:id};
+  const intFrag = Math.max(0, block.size - needed);
+  allocations.push({id,start:block.start,reqSize,intFrag,active:true});
+  totalAllocated++;
+  log(`ALLOC #${id}  size=${reqSize}  addr=${block.start}  int.frag=${intFrag}`,'a');
+  snapshot();
+  render();
+  return true;
+}
+
+function freeById(id) {
+  const a = allocations.find(x=>x.id===id&&x.active);
+  if(!a) return;
+  for(let i=0;i<TOTAL;i++) if(memory[i].aid===id) memory[i]={idx:i,type:'free',aid:null};
+  a.active=false; totalFreed++;
+  log(`FREE  #${id}  addr=${a.start}  size=${a.reqSize}`,'f');
+  snapshot();
+  render();
+}
+
+function doAlloc() {
+  const sz = parseInt(document.getElementById('sz-slider').value);
+  allocate(sz);
+}
+
+function doFree() {
+  const live = allocations.filter(a=>a.active);
+  if(!live.length){log('Nothing to free','e');return;}
+  const pick = live[Math.floor(Math.random()*live.length)];
+  freeById(pick.id);
+}
+
+function doBurst() {
+  const n = parseInt(document.getElementById('burst-slider').value);
+  log(`--- Burst: ${n} ops ---`,'n');
+  let i=0;
+  const iv = setInterval(()=>{
+    if(Math.random()<0.62){ allocate(Math.ceil(Math.random()*7+1)); }
+    else { doFree(); }
+    if(++i>=n) clearInterval(iv);
+  },60);
+}
+
+function doCompact() {
+  const live = allocations.filter(a=>a.active);
+  if(!live.length){log('Nothing to compact','e');return;}
+  initMemory();
+  const old = [...live];
+  allocations=[];nextId=1;
+  old.forEach(a=>allocate(a.reqSize));
+  log(`Compacted â†’ ${old.length} blocks consolidated`,'n');
+}
+
+function doReset() {
+  initMemory();
+  updateCharts();
+  render();
+  clearLog();
+  log('Simulator initialized','n');
+}
+
+function calcStats() {
+  const free = getFreeBlocks();
+  const live = allocations.filter(a=>a.active);
+  const totalFree = free.reduce((s,b)=>s+b.size,0);
+  const smallFree = free.filter(b=>b.size<3).reduce((s,b)=>s+b.size,0);
+  const intFrag = live.reduce((s,a)=>s+a.intFrag,0);
+  const used = live.reduce((s,a)=>s+a.reqSize,0);
+  return {
+    extPct: Math.round((smallFree/TOTAL)*100),
+    intPct: Math.round((intFrag/TOTAL)*100),
+    util: Math.round((used/TOTAL)*100),
+    totalFree, freeBlocks: free.length, live: live.length
+  };
+}
+
+function snapshot() {
+  stepCount++;
+  const s = calcStats();
+  history.ext.push(s.extPct);
+  history.int.push(s.intPct);
+  history.util.push(s.util);
+  history.labels.push(stepCount);
+  if(history.labels.length>50){
+    history.ext.shift();history.int.shift();history.util.shift();history.labels.shift();
+  }
+  updateCharts();
+}
+
+function render() {
+  const grid = document.getElementById('mem-grid');
+  grid.innerHTML='';
+  const tip = document.getElementById('tooltip');
+  for(let i=0;i<TOTAL;i++){
+    const c = memory[i];
+    const div = document.createElement('div');
+    div.className='mcell '+(c.type==='free'?'free':c.type==='header'?'header':c.type==='alloc'?'alloc':'free');
+    div.addEventListener('mouseenter',e=>{
+      let msg = c.type==='free'?`Cell ${i}: free`
+              : c.type==='header'?`Cell ${i}: header (alloc #${c.aid})`
+              : `Cell ${i}: alloc #${c.aid}`;
+      tip.textContent=msg;
+      tip.style.opacity='1';
+    });
+    div.addEventListener('mousemove',e=>{ tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY-30)+'px'; });
+    div.addEventListener('mouseleave',()=>{ tip.style.opacity='0'; });
+    if(c.type==='alloc'&&c.aid) div.addEventListener('click',()=>freeById(c.aid));
+    grid.appendChild(div);
+  }
+
+  // internal frag highlight
+  const live = allocations.filter(a=>a.active);
+  live.forEach(a=>{
+    const endData = a.start+HEADER+a.reqSize;
+    const endBlock = a.start + HEADER + a.reqSize + a.intFrag;
+    for(let i=endData;i<Math.min(endBlock,TOTAL)&&i<endBlock;i++){
+      if(memory[i].type==='free'){
+        const c2 = grid.children[i];
+        if(c2){ c2.className='mcell intfrag'; }
+      }
+    }
+  });
+
+  const s = calcStats();
+  const setM = (id,val,cls='neutral')=>{
+    const el = document.getElementById(id);
+    el.textContent=val;
+    el.className='metric-cell-val '+cls;
+  };
+  const extCls = s.extPct>30?'bad':s.extPct>12?'warn':'good';
+  const intCls = s.intPct>25?'bad':s.intPct>12?'warn':'good';
+  const uCls   = s.util>65?'good':s.util>35?'warn':'bad';
+  const fbCls  = s.freeBlocks>10?'bad':s.freeBlocks>5?'warn':'good';
+  setM('m-ext', s.extPct+'%', extCls);
+  setM('m-int', s.intPct+'%', intCls);
+  setM('m-util', s.util+'%', uCls);
+  setM('m-free', s.totalFree+'u', 'info');
+  setM('m-fblocks', s.freeBlocks, fbCls);
+  setM('m-live', s.live, 'neutral');
+}
+
+function setStrategy(s,el) {
+  strategy = s;
+  document.querySelectorAll('.stab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  const names={'first-fit':'First fit','best-fit':'Best fit','worst-fit':'Worst fit'};
+  document.getElementById('footer-strat').textContent = names[s];
+  document.getElementById('strat-info').innerHTML = STRAT_INFO[s];
+  log(`Strategy â†’ ${names[s]}`,'n');
+}
+
+const logEl = ()=>document.getElementById('log');
+function log(msg, cls='n') {
+  const box = logEl();
+  const d = document.createElement('div');
+  d.className='log-line '+cls;
+  const now = new Date();
+  const ts=`${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  d.innerHTML=`<span class="ts">[${ts}]</span> <span class="msg">${msg}</span>`;
+  box.appendChild(d);
+  box.scrollTop=box.scrollHeight;
+}
+function clearLog(){ logEl().innerHTML=''; }
+
+function updateCharts() {
+  if(!chartFrag||!chartUtil) return;
+  chartFrag.data.labels = history.labels;
+  chartFrag.data.datasets[0].data = history.ext;
+  chartFrag.data.datasets[1].data = history.int;
+  chartFrag.update('none');
+  chartUtil.data.labels = history.labels;
+  chartUtil.data.datasets[0].data = history.util;
+  chartUtil.update('none');
+}
+
+document.getElementById('sz-slider').addEventListener('input',function(){
+  document.getElementById('sz-out').textContent=this.value+' units';
+});
+document.getElementById('burst-slider').addEventListener('input',function(){
+  document.getElementById('burst-out').textContent=this.value+' ops';
+});
+
+window.addEventListener('load',()=>{
+  initMemory();
+
+  const fragCtx = document.getElementById('chart-frag').getContext('2d');
+  chartFrag = new Chart(fragCtx,{
+    type:'line',
+    data:{labels:[],datasets:[
+      {label:'External frag',data:[],borderColor:'#f87171',backgroundColor:'rgba(248,113,113,0.05)',tension:0.35,pointRadius:0,borderWidth:1.5,borderDash:[5,3]},
+      {label:'Internal frag',data:[],borderColor:'#f59e0b',backgroundColor:'rgba(245,158,11,0.05)',tension:0.35,pointRadius:0,borderWidth:1.5}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      scales:{
+        y:{min:0,max:100,ticks:{color:'#4b5563',font:{size:9,family:"'Space Mono'"},callback:v=>v+'%'},grid:{color:'rgba(255,255,255,0.04)'},border:{display:false}},
+        x:{ticks:{color:'#4b5563',font:{size:9},maxTicksLimit:8},grid:{display:false},border:{display:false}}
+      },
+      plugins:{legend:{display:false}},
+      animation:{duration:0}
+    }
+  });
+
+  const utilCtx = document.getElementById('chart-util').getContext('2d');
+  chartUtil = new Chart(utilCtx,{
+    type:'line',
+    data:{labels:[],datasets:[
+      {label:'Utilization',data:[],borderColor:'#4ade80',backgroundColor:'rgba(74,222,128,0.06)',tension:0.35,pointRadius:0,borderWidth:1.5,fill:true}
+    ]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      scales:{
+        y:{min:0,max:100,ticks:{color:'#4b5563',font:{size:9,family:"'Space Mono'"},callback:v=>v+'%'},grid:{color:'rgba(255,255,255,0.04)'},border:{display:false}},
+        x:{ticks:{color:'#4b5563',font:{size:9},maxTicksLimit:8},grid:{display:false},border:{display:false}}
+      },
+      plugins:{legend:{display:false}},
+      animation:{duration:0}
+    }
+  });
+
+  document.getElementById('strat-info').innerHTML = STRAT_INFO['first-fit'];
+  render();
+  log('Simulator initialized','n');
+
+  setTimeout(()=>{
+    [4,7,2,5,3,6].forEach((sz,i)=>setTimeout(()=>allocate(sz),i*90));
+    setTimeout(doFree, 600);
+    setTimeout(()=>allocate(4), 750);
+  }, 200);
+});
+</script>
+</body>
+</html>
